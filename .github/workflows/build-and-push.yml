@@ -72,10 +72,19 @@ jobs:
 
       - name: Run tests (from spec)
         run: |
-          TESTS='${{ steps.spec.outputs.tests }}'
-          echo "$TESTS" | jq -r '.[]' | while read -r t; do
-            echo "Running: $t"
-            docker run --rm local/${{ matrix.tool }}:ci bash -lc "$t"
+          set -euo pipefail
+
+          spec="tools/${{ matrix.tool }}/spec.yml"
+          if ! yq -e '.test and (.test | type == "!!seq") and (.test | length > 0)' "$spec" >/dev/null; then
+            echo "Error: $spec must define a non-empty .test array." >&2
+            exit 1
+          fi
+
+          mapfile -t tests < <(yq -r '.test[]' "$spec")
+
+          for test_cmd in "${tests[@]}"; do
+            echo "Running: $test_cmd"
+            docker run --rm local/${{ matrix.tool }}:ci bash -lc "$test_cmd"
           done
 
       - name: Tag & Push (only on main)
