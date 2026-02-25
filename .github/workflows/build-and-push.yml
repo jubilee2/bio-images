@@ -1,4 +1,4 @@
-name: Build and push tool images
+name: Build and Push Tool Images
 
 on:
   pull_request:
@@ -6,10 +6,6 @@ on:
     branches:
       - main
   workflow_dispatch:
-
-concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
 
 jobs:
   discover-tools:
@@ -19,72 +15,69 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - id: tools
-        run: |
-          echo "tools=$(scripts/list_tools.sh)" >> "$GITHUB_OUTPUT"
+        run: echo "tools=$(./scripts/list_tools.sh)" >> "$GITHUB_OUTPUT"
 
   build-test-push:
-    runs-on: ubuntu-latest
     needs: discover-tools
+    runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
         tool: ${{ fromJson(needs.discover-tools.outputs.tools) }}
+
     steps:
       - uses: actions/checkout@v4
 
-      - name: Build image
-        run: |
-          docker build -t "${{ matrix.tool }}:ci" "tools/${{ matrix.tool }}"
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
 
-      - name: Run tests (from spec)
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Read spec metadata
+        id: spec
+        shell: bash
         run: |
           set -euo pipefail
-
           spec="tools/${{ matrix.tool }}/spec.yml"
-          if ! yq -e '.test and (.test | type == "!!seq") and (.test | length > 0)' "$spec" >/dev/null; then
-            echo "Error: $spec must define a non-empty .test array." >&2
-            exit 1
-          fi
 
-          mapfile -t tests < <(yq -r '.test[]' "$spec")
+          image=$(ruby -ryaml -e 'puts YAML.load_file(ARGV[0]).fetch("image")' "$spec")
+          tags_json=$(ruby -ryaml -rjson -e 'data=YAML.load_file(ARGV[0]); puts JSON.generate(data.fetch("tags", []))' "$spec")
+          tests_json=$(ruby -ryaml -rjson -e 'puts JSON.generate(Array(YAML.load_file(ARGV[0]).fetch("test")))' "$spec")
 
-          for test_cmd in "${tests[@]}"; do
-            echo "Running: $test_cmd"
-            docker run --rm ${{ matrix.tool }}:ci sh -c "$test_cmd"
+          sha_tag="sha-${GITHUB_SHA::7}"
+
+          tag_list=("$image:$sha_tag")
+          while IFS= read -r t; do
+            [[ -n "$t" ]] && tag_list+=("$image:$t")
+          done < <(printf '%s' "$tags_json" | jq -r '.[]')
+
+          {
+            echo "image=$image"
+            echo "sha_tag=$sha_tag"
+            echo "tests_json=$tests_json"
+            echo "tags_multiline<<EOF"
+            printf '%s\n' "${tag_list[@]}"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Build amd64 image for tests
+        uses: docker/build-push-action@v6
+        with:
+          context: ./tools/${{ matrix.tool }}
+          platforms: linux/amd64
+          load: true
+          tags: ${{ steps.spec.outputs.image }}:ci-${{ github.run_id }}-${{ matrix.tool }}
+
+      - name: Run spec tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          image="${{ steps.spec.outputs.image }}:ci-${{ github.run_id }}-${{ matrix.tool }}"
+          printf '%s' '${{ steps.spec.outputs.tests_json }}' | jq -r '.[]' | while IFS= read -r cmd; do
+            echo "Running test: $cmd"
+            docker run --rm --entrypoint /bin/bash "$image" -lc "$cmd"
           done
-
-      - name: Detect installed tool version
-        id: version
-        run: |
-          set -euo pipefail
-
-          spec="tools/${{ matrix.tool }}/spec.yml"
-          default_version_cmd='${{ matrix.tool }} --version'
-          version_cmd=$(yq -r '.version_command // ""' "$spec")
-          if [ -z "$version_cmd" ] || [ "$version_cmd" = "null" ]; then
-            version_cmd="$default_version_cmd"
-          fi
-
-          version_output=$(docker run --rm "${{ matrix.tool }}:ci" sh -c "$version_cmd")
-          raw_version="${version_output%%$'\n'*}"
-          parsed_version=""
-
-          while IFS= read -r line; do
-            if [[ "$line" =~ ([0-9]+(\.[0-9]+)+) ]]; then
-              parsed_version="${BASH_REMATCH[1]}"
-              raw_version="$line"
-            fi
-          done <<< "$version_output"
-
-          if [ -z "$parsed_version" ]; then
-            echo "Unable to parse version from output: $version_output"
-            exit 1
-          fi
-
-          echo "raw=$raw_version" >> "$GITHUB_OUTPUT"
-          echo "version=$parsed_version" >> "$GITHUB_OUTPUT"
-          echo "command=$version_cmd" >> "$GITHUB_OUTPUT"
-          echo "Version command: $version_cmd"
-          echo "Detected version: $parsed_version"
 
       - name: Log in to Docker Hub
         if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
@@ -93,29 +86,11 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      - name: Push tags
+      - name: Build and push multi-arch image
         if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
-        run: |
-          set -euo pipefail
-          image="jubilee2/${{ matrix.tool }}"
-          sha_tag="sha-${GITHUB_SHA::7}"
-          version_tag="${{ steps.version.outputs.version }}"
-
-          if [ -z "$version_tag" ] || [ "$version_tag" = "null" ]; then
-            echo "No version tag detected from steps.version.outputs.version" >&2
-            exit 1
-          fi
-
-          if docker manifest inspect "$image:$version_tag" >/dev/null 2>&1; then
-            echo "Version tag already exists, skipping all pushes: $image:$version_tag"
-            exit 0
-          fi
-
-          docker tag "${{ matrix.tool }}:ci" "$image:$sha_tag"
-          docker push "$image:$sha_tag"
-
-          docker tag "${{ matrix.tool }}:ci" "$image:$version_tag"
-          docker push "$image:$version_tag"
-
-          docker tag "${{ matrix.tool }}:ci" "$image:latest"
-          docker push "$image:latest"
+        uses: docker/build-push-action@v6
+        with:
+          context: ./tools/${{ matrix.tool }}
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.spec.outputs.tags_multiline }}
