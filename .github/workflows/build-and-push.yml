@@ -64,8 +64,14 @@ jobs:
             version_cmd="$default_version_cmd"
           fi
 
-          raw_version=$(docker run --rm "${{ matrix.tool }}:ci" sh -c "$version_cmd" | head -n1)
-          parsed_version=$(printf '%s\n' "$raw_version" | grep -Eo '[0-9]+(\.[0-9]+)+' | head -n1)
+          version_output=$(docker run --rm "${{ matrix.tool }}:ci" sh -c "$version_cmd")
+          raw_version="${version_output%%$'\n'*}"
+
+          if [[ "$raw_version" =~ ([0-9]+(\.[0-9]+)+) ]]; then
+            parsed_version="${BASH_REMATCH[1]}"
+          else
+            parsed_version=""
+          fi
 
           if [ -z "$parsed_version" ]; then
             echo "Unable to parse version from: $raw_version"
