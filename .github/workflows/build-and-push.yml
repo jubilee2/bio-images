@@ -85,7 +85,6 @@ jobs:
         if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
         run: |
           set -euo pipefail
-          spec="tools/${{ matrix.tool }}/spec.yml"
           image="jubilee2/${{ matrix.tool }}"
           sha_tag="sha-${GITHUB_SHA::7}"
 
@@ -95,21 +94,5 @@ jobs:
           docker tag "${{ matrix.tool }}:ci" "$image:${{ steps.version.outputs.version }}"
           docker push "$image:${{ steps.version.outputs.version }}"
 
-          mapfile -t tags < <(
-            awk '
-              /^tags:/ {in_tags=1; next}
-              in_tags && /^[^[:space:]-]/ {in_tags=0}
-              in_tags && /^[[:space:]]*-/ {
-                line=$0
-                sub(/^[[:space:]]*-[[:space:]]*/, "", line)
-                gsub(/"/, "", line)
-                print line
-              }
-            ' "$spec"
-          )
-
-          for tag in "${tags[@]}"; do
-            [ -z "$tag" ] && continue
-            docker tag "${{ matrix.tool }}:ci" "$image:$tag"
-            docker push "$image:$tag"
-          done
+          docker tag "${{ matrix.tool }}:ci" "$image:latest"
+          docker push "$image:latest"
