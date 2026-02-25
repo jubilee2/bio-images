@@ -1,0 +1,6 @@
+tool: ordinalgwas
+image: jubilee2/ordinalgwas
+tags:
+  - "latest"
+test:
+  - "julia -e 'using OrdinalGWAS; println(""OrdinalGWAS loaded"")'"
