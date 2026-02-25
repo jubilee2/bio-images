@@ -56,7 +56,15 @@ jobs:
         id: version
         run: |
           set -euo pipefail
-          raw_version=$(docker run --rm "${{ matrix.tool }}:ci" sh -lc '${{ matrix.tool }} --version' | head -n1)
+
+          spec="tools/${{ matrix.tool }}/spec.yml"
+          default_version_cmd='${{ matrix.tool }} --version'
+          version_cmd=$(yq -r '.version_command // ""' "$spec")
+          if [ -z "$version_cmd" ] || [ "$version_cmd" = "null" ]; then
+            version_cmd="$default_version_cmd"
+          fi
+
+          raw_version=$(docker run --rm "${{ matrix.tool }}:ci" sh -lc "$version_cmd" | head -n1)
           parsed_version=$(printf '%s\n' "$raw_version" | grep -Eo '[0-9]+(\.[0-9]+)+' | head -n1)
 
           if [ -z "$parsed_version" ]; then
@@ -66,6 +74,8 @@ jobs:
 
           echo "raw=$raw_version" >> "$GITHUB_OUTPUT"
           echo "version=$parsed_version" >> "$GITHUB_OUTPUT"
+          echo "command=$version_cmd" >> "$GITHUB_OUTPUT"
+          echo "Version command: $version_cmd"
           echo "Detected version: $parsed_version"
 
       - name: Log in to Docker Hub
