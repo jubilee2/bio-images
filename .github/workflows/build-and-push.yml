@@ -48,8 +48,9 @@ jobs:
           mapfile -t tests < <(yq -r '.test[]' "$spec")
 
           for test_cmd in "${tests[@]}"; do
-            echo "Running: $test_cmd"
-            docker run --rm ${{ matrix.tool }}:ci sh -lc "$test_cmd"
+            escaped=${test_cmd//\"/\\\"}
+            echo "Running: $escaped"
+            docker run --rm ${{ matrix.tool }}:ci sh -c "$escaped"
           done
 
       - name: Detect installed tool version
