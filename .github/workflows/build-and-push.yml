@@ -1,0 +1,90 @@
+name: Build and Push Tool Images
+
+on:
+  pull_request:
+  push:
+    branches: [ "main" ]
+  workflow_dispatch:
+
+jobs:
+  matrix:
+    runs-on: ubuntu-latest
+    outputs:
+      tools: ${{ steps.set-matrix.outputs.tools }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install jq
+        run: sudo apt-get update && sudo apt-get install -y jq
+      - id: set-matrix
+        name: Build tool matrix
+        run: |
+          TOOLS_JSON=$(./scripts/list_tools.sh)
+          echo "tools=$TOOLS_JSON" >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: matrix
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        tool: ${{ fromJson(needs.matrix.outputs.tools) }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install yq (for reading spec.yml)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y jq
+          sudo wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
+          sudo chmod +x /usr/local/bin/yq
+
+      - name: Read spec
+        id: spec
+        run: |
+          SPEC="tools/${{ matrix.tool }}/spec.yml"
+          IMAGE=$(yq '.image' "$SPEC")
+          TAGS=$(yq -o=json '.tags' "$SPEC")
+          TESTS=$(yq -o=json '.test' "$SPEC")
+          echo "image=$IMAGE" >> "$GITHUB_OUTPUT"
+          echo "tags=$TAGS" >> "$GITHUB_OUTPUT"
+          echo "tests=$TESTS" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to Docker Hub (push only on main)
+        if: github.event_name == 'push'
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build image
+        run: |
+          docker build -t local/${{ matrix.tool }}:ci tools/${{ matrix.tool }}
+
+      - name: Run tests (from spec)
+        run: |
+          TESTS='${{ steps.spec.outputs.tests }}'
+          echo "$TESTS" | jq -r '.[]' | while read -r t; do
+            echo "Running: $t"
+            docker run --rm local/${{ matrix.tool }}:ci bash -lc "$t"
+          done
+
+      - name: Tag & Push (only on main)
+        if: github.event_name == 'push'
+        run: |
+          IMAGE='${{ steps.spec.outputs.image }}'
+          TAGS='${{ steps.spec.outputs.tags }}'
+
+          SHORT_SHA="${GITHUB_SHA::7}"
+
+          # Always push a sha tag too
+          docker tag local/${{ matrix.tool }}:ci "${IMAGE}:sha-${SHORT_SHA}"
+          docker push "${IMAGE}:sha-${SHORT_SHA}"
+
+          echo "$TAGS" | jq -r '.[]' | while read -r tag; do
+            docker tag local/${{ matrix.tool }}:ci "${IMAGE}:${tag}"
+            docker push "${IMAGE}:${tag}"
+          done
