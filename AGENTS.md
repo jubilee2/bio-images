@@ -1,32 +1,31 @@
 # AGENTS.md
 
-## Project: DNA Tool Docker Images
+## DNA Tool Docker Images
 
-Owner: `jubilee2`
-Registry: Docker Hub
-Pattern: **One Docker Hub repository per tool**
-Install method: **apt (Ubuntu 22.04)**
-CI: GitHub Actions
+**Owner:** `jubilee2`  
+**Registry:** Docker Hub  
+**Architecture:** one Docker Hub repository per tool  
+**Base install method:** `apt` on Ubuntu 22.04  
+**CI/CD:** GitHub Actions
 
 ---
 
-# 1. Purpose
+## 1) Purpose
 
-This repository manages multiple Docker images for DNA tools using a **spec-driven development model**.
+This repository manages Docker images for DNA tools using a **spec-driven workflow**.
 
 Each tool:
-
-* Has its own folder
-* Has its own `spec.yml`
-* Builds to its own Docker Hub repository (`jubilee2/<tool>`)
-* Is built/tested automatically by GitHub Actions
-* Pushes images only on `main`
+- lives in its own folder
+- defines its contract in `spec.yml`
+- maps to its own image repository (`jubilee2/<tool>`)
+- is automatically built and tested in CI
+- is pushed only from `main`
 
 ---
 
-# 2. Repository Structure
+## 2) Repository Layout
 
-```
+```text
 dna-dockerfiles/
 ├── tools/
 │   └── <tool>/
@@ -41,9 +40,9 @@ dna-dockerfiles/
 
 ---
 
-# 3. Tool Contract (Spec-Driven Model)
+## 3) Tool Contract (Spec-Driven)
 
-Each tool MUST contain a `spec.yml`.
+Every tool **must** include `spec.yml`.
 
 Example:
 
@@ -59,30 +58,28 @@ test:
 
 ### Required fields
 
-| Field   | Purpose                        |
-| ------- | ------------------------------ |
-| `tool`  | Folder name                    |
-| `image` | Docker Hub repo                |
-| `tags`  | Tags to push on main           |
-| `test`  | Commands run in CI after build |
+| Field   | Description |
+|---|---|
+| `tool`  | Tool name (matches folder name) |
+| `image` | Docker Hub repository |
+| `tags`  | Tags to publish from `main` |
+| `test`  | Commands CI runs after build |
 
-The `spec.yml` is the source of truth for:
-
-* image naming
-* tagging
-* CI test validation
+`spec.yml` is the single source of truth for:
+- image naming
+- tagging
+- CI test validation
 
 ---
 
-# 4. Dockerfile Rules
+## 4) Dockerfile Standards
 
-All tools must:
-
-* Use `ubuntu:22.04`
-* Install via `apt`
-* Remove apt cache
-* Include OCI labels
-* Avoid unnecessary packages
+All tool Dockerfiles must:
+- use `ubuntu:22.04`
+- install packages with `apt`
+- remove apt cache (`/var/lib/apt/lists/*`)
+- include OCI labels
+- avoid unnecessary packages
 
 Template:
 
@@ -104,71 +101,46 @@ CMD ["<tool>"]
 
 ---
 
-# 5. CI Behavior (GitHub Actions)
+## 5) CI/CD Behavior
 
 Workflow: `.github/workflows/build-and-push.yml`
 
-## Trigger Matrix
+### Trigger behavior
 
-| Event             | Behavior            |
-| ----------------- | ------------------- |
-| Pull Request      | Build + Test only   |
-| Push to main      | Build + Test + Push |
-| workflow_dispatch | Manual run          |
+| Event | Behavior |
+|---|---|
+| Pull request | Build + test |
+| Push to `main` | Build + test + push |
+| `workflow_dispatch` | Manual run |
 
----
-
-## Build Process
-
-For each tool:
+### Per-tool CI steps
 
 1. Build Docker image
-2. Run all `spec.yml` test commands
-3. On main:
+2. Run all commands from `spec.yml:test`
+3. On `main`, push:
+   - `sha-<short_sha>`
+   - all tags from `spec.yml`
 
-   * Push `sha-<short_sha>`
-   * Push all tags from spec
+### Tagging policy (`main`)
 
----
-
-## Tagging Policy
-
-On push to main:
-
-* `jubilee2/<tool>:sha-<commit>`
-* `jubilee2/<tool>:latest`
-* any additional tags from spec
+- `jubilee2/<tool>:sha-<commit>`
+- `jubilee2/<tool>:latest`
+- any additional tags listed in `spec.yml`
 
 ---
 
-# 6. Adding a New Tool
+## 6) Adding a New Tool
 
-Steps:
-
-1. Create folder:
-
-   ```
-   tools/<tool>/
-   ```
-
+1. Create `tools/<tool>/`
 2. Add `Dockerfile`
-
 3. Add `spec.yml`
+4. Commit and push
 
-4. Commit + push
-
-CI automatically:
-
-* detects tool
-* builds
-* tests
-* pushes image
-
-No workflow modification required.
+CI auto-detects the tool and then builds, tests, and pushes (on `main`) without workflow edits.
 
 ---
 
-# 7. Local Testing Standard
+## 7) Local Validation Standard
 
 Before pushing:
 
@@ -177,79 +149,72 @@ docker build -t test-image tools/<tool>
 docker run --rm test-image <tool> --version
 ```
 
-All `spec.yml` test commands must pass locally.
+All commands in `spec.yml:test` should pass locally.
 
 ---
 
-# 8. Definition of Done (DoD)
+## 8) Definition of Done
 
-A tool is considered production-ready when:
-
-* Dockerfile builds cleanly
-* All spec tests pass in CI
-* Image pushes successfully
-* OCI labels are present
-* apt cache removed
-* No unnecessary packages installed
+A tool is production-ready when:
+- Dockerfile builds cleanly
+- all spec tests pass in CI
+- image pushes successfully
+- OCI labels are present
+- apt cache is removed
+- no unnecessary packages are installed
 
 ---
 
-# 9. Scaling Guidelines
+## 9) Scaling Guidelines
 
 When adding many tools:
-
-* Keep one tool per folder
-* Do not combine tools into one image
-* Keep install minimal
-* Prefer official Ubuntu apt packages
-* If apt lacks correct version, document limitation in README
-
----
-
-# 10. Future Enhancements (Optional)
-
-Possible next iterations:
-
-* Auto-detect installed version and tag dynamically
-* Security scan step (Trivy)
-* Multi-arch build (amd64 + arm64)
-* Non-root user enforcement
-* Auto rebuild on base image updates (scheduled job)
-* Generate Dockerfiles from spec
+- keep one tool per folder
+- do not combine tools into one image
+- keep installs minimal
+- prefer official Ubuntu apt packages
+- if apt lacks a required version, document the limitation in `README`
 
 ---
 
-# 11. Design Principles
+## 10) Optional Future Enhancements
 
-This repo follows:
-
-* Spec-driven development
-* CI-enforced contracts
-* One image per tool
-* Deterministic builds
-* Minimal images
-* Automated tagging
-* No manual Docker Hub pushes
+- auto-detect installed version for tagging
+- security scanning (Trivy)
+- multi-arch builds (`amd64`, `arm64`)
+- non-root user enforcement
+- scheduled rebuilds for base image updates
+- Dockerfile generation from spec
 
 ---
 
-# 12. Governance
+## 11) Design Principles
 
-Owner: `jubilee2`
-Changes require:
-
-* PR review (if collaboration begins)
-* CI must pass before merge
-* No direct Docker Hub edits outside CI
+- spec-driven development
+- CI-enforced contracts
+- one image per tool
+- deterministic builds
+- minimal image footprint
+- automated tagging
+- no manual Docker Hub pushes
 
 ---
 
-# Summary
+## 12) Governance
 
-This repository provides:
+**Owner:** `jubilee2`
 
-* Reproducible Docker images for DNA tools
-* Automated GitHub Actions builds
-* One Docker Hub repo per tool
-* Spec-driven CI enforcement
-* Scalable, clean architecture
+Change requirements:
+- PR review (if/when collaboration is enabled)
+- passing CI before merge
+- no direct Docker Hub edits outside CI
+
+---
+
+## Summary
+
+This repo provides:
+- reproducible DNA tool images
+- automated GitHub Actions builds
+- one Docker Hub repository per tool
+- spec-driven CI enforcement
+- scalable, clean image architecture
