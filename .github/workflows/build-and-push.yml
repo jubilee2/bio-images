@@ -1,96 +1,115 @@
-name: Build and Push Tool Images
+name: Build and push tool images
 
 on:
   pull_request:
   push:
-    branches: [ "main" ]
+    branches:
+      - main
   workflow_dispatch:
 
 jobs:
-  matrix:
+  discover-tools:
     runs-on: ubuntu-latest
     outputs:
-      tools: ${{ steps.set-matrix.outputs.tools }}
+      tools: ${{ steps.tools.outputs.tools }}
     steps:
       - uses: actions/checkout@v4
-      - name: Install jq
-        run: sudo apt-get update && sudo apt-get install -y jq
-      - id: set-matrix
-        name: Build tool matrix
+      - id: tools
         run: |
-          TOOLS_JSON=$(./scripts/list_tools.sh)
-          echo "tools=$TOOLS_JSON" >> "$GITHUB_OUTPUT"
+          echo "tools=$(scripts/list_tools.sh)" >> "$GITHUB_OUTPUT"
 
-  build:
-    needs: matrix
+  build-test-push:
     runs-on: ubuntu-latest
+    needs: discover-tools
     strategy:
-      fail-fast: false
       matrix:
-        tool: ${{ fromJson(needs.matrix.outputs.tools) }}
-
+        tool: ${{ fromJson(needs.discover-tools.outputs.tools) }}
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install yq (for reading spec.yml)
+      - name: Build image
         run: |
-          sudo apt-get update
-          sudo apt-get install -y jq
-          sudo wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
-          sudo chmod +x /usr/local/bin/yq
+          docker build -t "${{ matrix.tool }}:ci" "tools/${{ matrix.tool }}"
 
-      - name: Read spec
-        id: spec
+      - name: Run spec tests
         run: |
-          SPEC="tools/${{ matrix.tool }}/spec.yml"
-          IMAGE=$(yq '.image' "$SPEC")
-          TAGS=$(yq -o=json -I=0 '.tags' "$SPEC")
-          TESTS=$(yq -o=json -I=0 '.test' "$SPEC")
-          echo "image=$IMAGE" >> "$GITHUB_OUTPUT"
-          echo "tags=$TAGS" >> "$GITHUB_OUTPUT"
-          echo "tests=$TESTS" >> "$GITHUB_OUTPUT"
+          set -euo pipefail
+          spec="tools/${{ matrix.tool }}/spec.yml"
+          mapfile -t tests < <(
+            awk '
+              /^test:/ {in_test=1; next}
+              in_test && /^[^[:space:]-]/ {in_test=0}
+              in_test && /^[[:space:]]*-/ {
+                line=$0
+                sub(/^[[:space:]]*-[[:space:]]*/, "", line)
+                gsub(/"/, "", line)
+                print line
+              }
+            ' "$spec"
+          )
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+          if [ "${#tests[@]}" -eq 0 ]; then
+            echo "No tests found in $spec"
+            exit 1
+          fi
 
-      - name: Login to Docker Hub (push only on main)
-        if: github.event_name == 'push'
+          for test_cmd in "${tests[@]}"; do
+            echo "Running: $test_cmd"
+            docker run --rm "${{ matrix.tool }}:ci" sh -lc "$test_cmd"
+          done
+
+      - name: Detect installed tool version
+        id: version
+        run: |
+          set -euo pipefail
+          raw_version=$(docker run --rm "${{ matrix.tool }}:ci" sh -lc '${{ matrix.tool }} --version' | head -n1)
+          parsed_version=$(printf '%s\n' "$raw_version" | grep -Eo '[0-9]+(\.[0-9]+)+' | head -n1)
+
+          if [ -z "$parsed_version" ]; then
+            echo "Unable to parse version from: $raw_version"
+            exit 1
+          fi
+
+          echo "raw=$raw_version" >> "$GITHUB_OUTPUT"
+          echo "version=$parsed_version" >> "$GITHUB_OUTPUT"
+          echo "Detected version: $parsed_version"
+
+      - name: Log in to Docker Hub
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
         uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      - name: Build image
+      - name: Push tags
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
         run: |
-          docker build \
-            --label "org.opencontainers.image.title=${{ matrix.tool }}" \
-            --label "org.opencontainers.image.source=https://github.com/${GITHUB_REPOSITORY}" \
-            --label "org.opencontainers.image.revision=${GITHUB_SHA}" \
-            --label "org.opencontainers.image.created=$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-            -t local/${{ matrix.tool }}:ci \
-            tools/${{ matrix.tool }}
+          set -euo pipefail
+          spec="tools/${{ matrix.tool }}/spec.yml"
+          image="jubilee2/${{ matrix.tool }}"
+          sha_tag="sha-${GITHUB_SHA::7}"
 
-      - name: Run tests (from spec)
-        run: |
-          TESTS='${{ steps.spec.outputs.tests }}'
-          echo "$TESTS" | jq -r '.[]' | while read -r t; do
-            echo "Running: $t"
-            docker run --rm local/${{ matrix.tool }}:ci bash -lc "$t"
-          done
+          docker tag "${{ matrix.tool }}:ci" "$image:$sha_tag"
+          docker push "$image:$sha_tag"
 
-      - name: Tag & Push (only on main)
-        if: github.event_name == 'push'
-        run: |
-          IMAGE='${{ steps.spec.outputs.image }}'
-          TAGS='${{ steps.spec.outputs.tags }}'
+          docker tag "${{ matrix.tool }}:ci" "$image:${{ steps.version.outputs.version }}"
+          docker push "$image:${{ steps.version.outputs.version }}"
 
-          SHORT_SHA="${GITHUB_SHA::7}"
+          mapfile -t tags < <(
+            awk '
+              /^tags:/ {in_tags=1; next}
+              in_tags && /^[^[:space:]-]/ {in_tags=0}
+              in_tags && /^[[:space:]]*-/ {
+                line=$0
+                sub(/^[[:space:]]*-[[:space:]]*/, "", line)
+                gsub(/"/, "", line)
+                print line
+              }
+            ' "$spec"
+          )
 
-          # Always push a sha tag too
-          docker tag local/${{ matrix.tool }}:ci "${IMAGE}:sha-${SHORT_SHA}"
-          docker push "${IMAGE}:sha-${SHORT_SHA}"
-
-          echo "$TAGS" | jq -r '.[]' | while read -r tag; do
-            docker tag local/${{ matrix.tool }}:ci "${IMAGE}:${tag}"
-            docker push "${IMAGE}:${tag}"
+          for tag in "${tags[@]}"; do
+            [ -z "$tag" ] && continue
+            docker tag "${{ matrix.tool }}:ci" "$image:$tag"
+            docker push "$image:$tag"
           done
