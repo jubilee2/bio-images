@@ -1,6 +1,4 @@
 tool: samtools
 image: jubilee2/samtools
-tags:
-  - "latest"
 test:
   - "samtools --version"

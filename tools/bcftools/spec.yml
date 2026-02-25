@@ -1,6 +1,4 @@
 tool: bcftools
 image: jubilee2/bcftools
-tags:
-  - "latest"
 test:
   - "bcftools --version"
