@@ -44,8 +44,8 @@ jobs:
         run: |
           SPEC="tools/${{ matrix.tool }}/spec.yml"
           IMAGE=$(yq '.image' "$SPEC")
-          TAGS=$(yq -o=json '.tags' "$SPEC")
-          TESTS=$(yq -o=json '.test' "$SPEC")
+          TAGS=$(yq -o=json -I=0 '.tags' "$SPEC")
+          TESTS=$(yq -o=json -I=0 '.test' "$SPEC")
           echo "image=$IMAGE" >> "$GITHUB_OUTPUT"
           echo "tags=$TAGS" >> "$GITHUB_OUTPUT"
           echo "tests=$TESTS" >> "$GITHUB_OUTPUT"
