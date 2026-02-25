@@ -87,19 +87,18 @@ jobs:
             docker run --rm local/${{ matrix.tool }}:ci bash -lc "$test_cmd"
           done
 
-      - name: Tag & Push (only on main)
-        if: github.event_name == 'push'
+      - name: Push tags
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
         run: |
-          IMAGE='${{ steps.spec.outputs.image }}'
-          TAGS='${{ steps.spec.outputs.tags }}'
+          set -euo pipefail
+          image="jubilee2/${{ matrix.tool }}"
+          sha_tag="sha-${GITHUB_SHA::7}"
 
-          SHORT_SHA="${GITHUB_SHA::7}"
+          docker tag "${{ matrix.tool }}:ci" "$image:$sha_tag"
+          docker push "$image:$sha_tag"
 
-          # Always push a sha tag too
-          docker tag local/${{ matrix.tool }}:ci "${IMAGE}:sha-${SHORT_SHA}"
-          docker push "${IMAGE}:sha-${SHORT_SHA}"
+          docker tag "${{ matrix.tool }}:ci" "$image:${{ steps.version.outputs.version }}"
+          docker push "$image:${{ steps.version.outputs.version }}"
 
-          echo "$TAGS" | jq -r '.[]' | while read -r tag; do
-            docker tag local/${{ matrix.tool }}:ci "${IMAGE}:${tag}"
-            docker push "${IMAGE}:${tag}"
-          done
+          docker tag "${{ matrix.tool }}:ci" "$image:latest"
+          docker push "$image:latest"
