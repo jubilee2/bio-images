@@ -64,7 +64,7 @@ jobs:
             version_cmd="$default_version_cmd"
           fi
 
-          raw_version=$(docker run --rm "${{ matrix.tool }}:ci" sh -lc "$version_cmd" | head -n1)
+          raw_version=$(docker run --rm "${{ matrix.tool }}:ci" sh -c "$version_cmd" | head -n1)
           parsed_version=$(printf '%s\n' "$raw_version" | grep -Eo '[0-9]+(\.[0-9]+)+' | head -n1)
 
           if [ -z "$parsed_version" ]; then
