@@ -99,12 +99,23 @@ jobs:
           set -euo pipefail
           image="jubilee2/${{ matrix.tool }}"
           sha_tag="sha-${GITHUB_SHA::7}"
+          version_tag="${{ steps.version.outputs.version }}"
+
+          if [ -z "$version_tag" ] || [ "$version_tag" = "null" ]; then
+            echo "No version tag detected from steps.version.outputs.version" >&2
+            exit 1
+          fi
+
+          if docker manifest inspect "$image:$version_tag" >/dev/null 2>&1; then
+            echo "Version tag already exists, skipping all pushes: $image:$version_tag"
+            exit 0
+          fi
 
           docker tag "${{ matrix.tool }}:ci" "$image:$sha_tag"
           docker push "$image:$sha_tag"
 
-          docker tag "${{ matrix.tool }}:ci" "$image:${{ steps.version.outputs.version }}"
-          docker push "$image:${{ steps.version.outputs.version }}"
+          docker tag "${{ matrix.tool }}:ci" "$image:$version_tag"
+          docker push "$image:$version_tag"
 
           docker tag "${{ matrix.tool }}:ci" "$image:latest"
           docker push "$image:latest"
