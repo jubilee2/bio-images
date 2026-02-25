@@ -2,3 +2,5 @@ tool: ordinalgwas
 image: jubilee2/ordinalgwas
 test:
   - "julia -e 'using Pkg; Pkg.status([\"OrdinalGWAS\"])'"
+  - "gwas --help"
+  - "gwas --version"
