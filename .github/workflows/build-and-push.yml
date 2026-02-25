@@ -62,7 +62,12 @@ jobs:
 
       - name: Build image
         run: |
-          docker build -t local/${{ matrix.tool }}:ci tools/${{ matrix.tool }}
+          docker build \
+            --build-arg GITHUB_SHA="${GITHUB_SHA}" \
+            --build-arg BUILD_DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            --build-arg SOURCE_URL="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}" \
+            -t local/${{ matrix.tool }}:ci \
+            tools/${{ matrix.tool }}
 
       - name: Run tests (from spec)
         run: |
