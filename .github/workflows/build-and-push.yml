@@ -49,7 +49,7 @@ jobs:
 
           for test_cmd in "${tests[@]}"; do
             echo "Running: $test_cmd"
-            docker run --rm local/${{ matrix.tool }}:ci bash -lc "$test_cmd"
+            docker run --rm ${{ matrix.tool }}:ci bash -lc "$test_cmd"
           done
 
       - name: Detect installed tool version
