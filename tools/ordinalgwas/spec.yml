@@ -1,4 +1,4 @@
 tool: ordinalgwas
 image: jubilee2/ordinalgwas
 test:
-  - "julia -e 'using Pkg; Pkg.status(["OrdinalGWAS"])'"
+  - "julia -e 'using Pkg; Pkg.status([\"OrdinalGWAS\"])'"
