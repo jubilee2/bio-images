@@ -35,31 +35,21 @@ jobs:
         run: |
           docker build -t "${{ matrix.tool }}:ci" "tools/${{ matrix.tool }}"
 
-      - name: Run spec tests
+      - name: Run tests (from spec)
         run: |
           set -euo pipefail
-          spec="tools/${{ matrix.tool }}/spec.yml"
-          mapfile -t tests < <(
-            awk '
-              /^test:/ {in_test=1; next}
-              in_test && /^[^[:space:]-]/ {in_test=0}
-              in_test && /^[[:space:]]*-/ {
-                line=$0
-                sub(/^[[:space:]]*-[[:space:]]*/, "", line)
-                gsub(/"/, "", line)
-                print line
-              }
-            ' "$spec"
-          )
 
-          if [ "${#tests[@]}" -eq 0 ]; then
-            echo "No tests found in $spec"
+          spec="tools/${{ matrix.tool }}/spec.yml"
+          if ! yq -e '.test and (.test | type == "!!seq") and (.test | length > 0)' "$spec" >/dev/null; then
+            echo "Error: $spec must define a non-empty .test array." >&2
             exit 1
           fi
 
+          mapfile -t tests < <(yq -r '.test[]' "$spec")
+
           for test_cmd in "${tests[@]}"; do
             echo "Running: $test_cmd"
-            docker run --rm "${{ matrix.tool }}:ci" sh -lc "$test_cmd"
+            docker run --rm ${{ matrix.tool }}:ci bash -lc "$test_cmd"
           done
 
       - name: Detect installed tool version
