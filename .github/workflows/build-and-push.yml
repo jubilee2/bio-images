@@ -49,23 +49,41 @@ jobs:
 
           for test_cmd in "${tests[@]}"; do
             echo "Running: $test_cmd"
-            docker run --rm ${{ matrix.tool }}:ci bash -lc "$test_cmd"
+            docker run --rm ${{ matrix.tool }}:ci sh -c "$test_cmd"
           done
 
       - name: Detect installed tool version
         id: version
         run: |
           set -euo pipefail
-          raw_version=$(docker run --rm "${{ matrix.tool }}:ci" sh -lc '${{ matrix.tool }} --version' | head -n1)
-          parsed_version=$(printf '%s\n' "$raw_version" | grep -Eo '[0-9]+(\.[0-9]+)+' | head -n1)
+
+          spec="tools/${{ matrix.tool }}/spec.yml"
+          default_version_cmd='${{ matrix.tool }} --version'
+          version_cmd=$(yq -r '.version_command // ""' "$spec")
+          if [ -z "$version_cmd" ] || [ "$version_cmd" = "null" ]; then
+            version_cmd="$default_version_cmd"
+          fi
+
+          version_output=$(docker run --rm "${{ matrix.tool }}:ci" sh -c "$version_cmd")
+          raw_version="${version_output%%$'\n'*}"
+          parsed_version=""
+
+          while IFS= read -r line; do
+            if [[ "$line" =~ ([0-9]+(\.[0-9]+)+) ]]; then
+              parsed_version="${BASH_REMATCH[1]}"
+              raw_version="$line"
+            fi
+          done <<< "$version_output"
 
           if [ -z "$parsed_version" ]; then
-            echo "Unable to parse version from: $raw_version"
+            echo "Unable to parse version from output: $version_output"
             exit 1
           fi
 
           echo "raw=$raw_version" >> "$GITHUB_OUTPUT"
           echo "version=$parsed_version" >> "$GITHUB_OUTPUT"
+          echo "command=$version_cmd" >> "$GITHUB_OUTPUT"
+          echo "Version command: $version_cmd"
           echo "Detected version: $parsed_version"
 
       - name: Log in to Docker Hub
