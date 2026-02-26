@@ -8,4 +8,4 @@ WORKDIR /app
 
 ENV JULIA_PROJECT="@."
 COPY install.sh /tmp/install.sh
-RUN TARGETARCH="$TARGETARCH" TARGETVARIANT="$TARGETVARIANT" bash /tmp/install.sh && rm /tmp/install.sh
+RUN TARGETARCH="$TARGETARCH" bash /tmp/install.sh && rm /tmp/install.sh
