@@ -7,4 +7,3 @@ WORKDIR /app
 
 ENV JULIA_PROJECT="@."
 RUN julia -e 'using Pkg; Pkg.add("OrdinalGWAS"); Pkg.precompile();'
-RUN chmod -R 755 $JULIA_DEPOT_PATH /app
