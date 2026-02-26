@@ -14,4 +14,6 @@ case "${TARGETARCH:-}" in
     ;;
 esac
 
+echo "JULIA_CPU_TARGET=${JULIA_CPU_TARGET}"
+
 julia -e 'using Pkg; Pkg.add("OrdinalGWAS"); Pkg.precompile();'
