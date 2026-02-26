@@ -3,7 +3,7 @@ set -euo pipefail
 
 case "${TARGETARCH:-}" in
   amd64)
-    export JULIA_CPU_TARGET="generic;sandybridge,-xsaveopt,zarch;skylake-avx512,clone_all"
+    export JULIA_CPU_TARGET="generic;sandybridge,-xsaveopt;skylake-avx512,clone_all"
     ;;
   arm64)
     # Include Apple silicon tiers while keeping a generic baseline.
