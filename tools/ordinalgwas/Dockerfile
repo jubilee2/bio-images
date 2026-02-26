@@ -6,4 +6,5 @@ ENV JULIA_DEPOT_PATH="/usr/local/share/julia"
 WORKDIR /app
 
 ENV JULIA_PROJECT="@."
-RUN julia -e 'using Pkg; Pkg.add("OrdinalGWAS"); Pkg.precompile();'
+COPY install.sh /tmp/install.sh
+RUN bash /tmp/install.sh && rm /tmp/install.sh
