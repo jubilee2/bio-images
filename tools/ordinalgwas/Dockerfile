@@ -1,7 +1,6 @@
 FROM julia:1.12
 
 ARG TARGETARCH
-ARG TARGETVARIANT
 
 ENV JULIA_DEPOT_PATH="/usr/local/share/julia"
 
